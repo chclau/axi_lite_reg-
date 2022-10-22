@@ -47,11 +47,11 @@ end axil_regs;
 architecture arch_imp of axil_regs is
 
   -- AXI4LITE signals
-	signal axi_awaddr	: std_logic_vector(C_ADDR_W-1 downto 0);
+  signal axi_awaddr : std_logic_vector(C_ADDR_W - 1 downto 0);
   signal axi_awready : std_logic;
   signal axi_bresp : std_logic_vector(1 downto 0);
   signal axi_bvalid : std_logic;
-	signal axi_araddr	: std_logic_vector(C_ADDR_W-1 downto 0);
+  signal axi_araddr : std_logic_vector(C_ADDR_W - 1 downto 0);
   signal axi_arready : std_logic;
   signal axi_rdata : std_logic_vector(C_DATA_W - 1 downto 0);
   signal axi_rvalid : std_logic;
@@ -81,27 +81,27 @@ architecture arch_imp of axil_regs is
   signal wr_en : std_logic;
   signal raddr_strb : std_logic;
   signal rdata_strb : std_logic;
-  
+
   type rd_sm is (idle, start_rd, rd_data);
   signal rd_st : rd_sm;
-  type wr_sm is (idle, start_wr, wr_data, wr_resp);
+  type wr_sm is (idle, wr_data, wr_resp);
   signal wr_st : wr_sm;
- 
+
 begin
 
   -- I/O Connections assignments
   s_axi_awready <= axi_awready;
-  s_axi_bresp   <= axi_bresp;
-  s_axi_bvalid  <= axi_bvalid;
+  s_axi_bresp <= axi_bresp;
+  s_axi_bvalid <= axi_bvalid;
   s_axi_arready <= axi_arready;
-  s_axi_rdata   <= axi_rdata;
-  s_axi_rvalid  <= axi_rvalid;
+  s_axi_rdata <= axi_rdata;
+  s_axi_rvalid <= axi_rvalid;
 
   -------------------------------------------------------------------
   --   Registers write section
 
-  waddr_strb   <= s_axi_awvalid and axi_awready;
-  bresp_strb   <= s_axi_bready and axi_bvalid;
+  waddr_strb <= s_axi_awvalid and axi_awready;
+  bresp_strb <= s_axi_bready and axi_bvalid;
   s_axi_wready <= '1';
 
   -- write registers state machine for control
@@ -110,38 +110,48 @@ begin
     if rising_edge(s_axi_aclk) then
       if s_axi_aresetn = '0' then
         axi_awready <= '1';
-        axi_bvalid  <= '0';
-        wr_en       <= '0';
-        wr_st       <= idle;
+        axi_bvalid <= '0';
+        wr_en <= '0';
+        wr_st <= idle;
       else
         case wr_st is
           when idle =>
-            if (waddr_strb = '1') then  
-              axi_awaddr  <= s_axi_araddr; -- store write address
+            if (waddr_strb = '1') then
+              axi_awaddr <= s_axi_araddr; -- store write address
               axi_awready <= '0'; -- address received, stop receiving additional addresses
-              axi_bvalid  <= '0';
-              wr_st       <= start_wr;
+              axi_bvalid <= '0';
+
+              -- Check if waddr and wdata were sent on same clock
+              if (s_axi_wvalid = '1') then
+                axi_bvalid <= '1';
+                timeout_wr <= REGS_TIMEOUT - 1; -- load timeout for bresp phase
+                wr_en <= '1';
+                wr_st <= wr_resp;
+              else
+                timeout_wr <= REGS_TIMEOUT - 1; -- load timeout for write data phase
+                wr_en <= '1';
+                wr_st <= wr_data;
+              end if;
             end if;
-          when start_wr =>
-            timeout_wr <= REGS_TIMEOUT-1;    -- load timeout for write data phase
-            wr_st      <= wr_data;
           when wr_data =>
             if (s_axi_wvalid = '1') then
               axi_bvalid <= '1';
-              timeout_wr <= REGS_TIMEOUT-1;  -- load timeout for bresp phase
-              wr_st      <= wr_resp;
+              timeout_wr <= REGS_TIMEOUT - 1; -- load timeout for bresp phase
+              wr_en <= '1';
+              wr_st <= wr_resp;
             elsif (timeout_wr = 0) then
               axi_awready <= '1'; -- write timeout, address bus is ready for new addr
-              rd_st       <= idle;
+              wr_st <= idle;
             else
               timeout_wr <= timeout_wr - 1;
             end if;
           when wr_resp =>
-            axi_bvalid  <= '1';
-            if (bresp_strb='1' or timeout_wr = 0) then
-              axi_bvalid  <= '0';
+            wr_en <= '0';
+            axi_bvalid <= '1';
+            if (bresp_strb = '1' or timeout_wr = 0) then
+              axi_bvalid <= '0';
               axi_awready <= '1'; -- data received (or timeout), address bus is ready for new addr
-              rd_st       <= idle;
+              wr_st <= idle;
             elsif (timeout_wr > 0) then
               timeout_wr <= timeout_wr - 1;
             end if;
@@ -179,7 +189,7 @@ begin
       end if;
     end if;
   end process;
-  
+
   -------------------------------------------------------------------
   --   Registers read section 
 
@@ -192,26 +202,26 @@ begin
     if rising_edge(s_axi_aclk) then
       if s_axi_aresetn = '0' then
         axi_arready <= '1';
-        axi_rvalid  <= '0';
-        rd_st       <= idle;
+        axi_rvalid <= '0';
+        rd_st <= idle;
       else
         case rd_st is
           when idle =>
-            if (raddr_strb = '1') then  
-              axi_araddr  <= s_axi_araddr; -- store read address
+            if (raddr_strb = '1') then
+              axi_araddr <= s_axi_araddr; -- store read address
               axi_arready <= '0'; -- address received, stop receiving additional addresses
-              axi_rvalid  <= '0';
-              rd_st       <= start_rd;
+              axi_rvalid <= '0';
+              rd_st <= start_rd;
             end if;
           when start_rd =>
             axi_rvalid <= '1';
-            timeout_rd <= REGS_TIMEOUT-1;
-            rd_st      <= rd_data;
+            timeout_rd <= REGS_TIMEOUT - 1;
+            rd_st <= rd_data;
           when rd_data =>
             if (rdata_strb = '1' or timeout_rd = 0) then
-              axi_rvalid  <= '0'; 
+              axi_rvalid <= '0';
               axi_arready <= '1'; -- data received (or timeout), address bus is ready for new addr
-              rd_st       <= idle;
+              rd_st <= idle;
             else
               timeout_rd <= timeout_rd - 1;
             end if;
@@ -226,10 +236,10 @@ begin
   begin
     if (rising_edge (s_axi_aclk)) then
       -- Address decoding for registers read
-      loc_addr    := axi_araddr;
-      
+      loc_addr := axi_araddr;
+
       -- Default values for rdata and rresp
-      axi_rdata   <= (others => '0');
+      axi_rdata <= (others => '0');
       s_axi_rresp <= "00";
 
       case loc_addr is
